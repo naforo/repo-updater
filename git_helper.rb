@@ -10,6 +10,36 @@ module Git
         IO.popen(git_cmd) { |io| io.read }.chomp
       end
     end
+
+    def diff_tree_full(obj1 = 'HEAD', obj2 = nil, opts = {})
+      diff_opts = ['-p', '--cc', '--no-commit-id']
+      diff_opts << obj1
+      diff_opts << obj2 if obj2.is_a?(String)
+      diff_opts << '--' << opts[:path_limiter] if opts[:path_limiter].is_a? String
+
+      diff = command('diff-tree', diff_opts)
+      .gsub(/^diff --cc ([^\n]*)\n/m, "diff --git a/\\1 b/\\1\n")
+    end
+
+    def diff_tree_fullstats(obj1 = 'HEAD', obj2 = nil, opts = {})
+      diff_opts = ['--numstat', '--cc', '--no-commit-id']
+      diff_opts << obj1
+      diff_opts << obj2 if obj2.is_a?(String)
+      diff_opts << '--' << opts[:path_limiter] if opts[:path_limiter].is_a? String
+
+      hsh = {:total => {:insertions => 0, :deletions => 0, :lines => 0, :files => 0}, :files => {}}
+
+      command_lines('diff-tree', diff_opts).each do |file|
+        (insertions, deletions, filename) = file.split("\t")
+        hsh[:total][:insertions] += insertions.to_i
+        hsh[:total][:deletions] += deletions.to_i
+        hsh[:total][:lines] = (hsh[:total][:deletions] + hsh[:total][:insertions])
+        hsh[:total][:files] += 1
+        hsh[:files][filename] = {:insertions => insertions.to_i, :deletions => deletions.to_i}
+      end
+
+      hsh
+    end
   end
   # Bug with encodings
   class Diff
@@ -180,7 +210,16 @@ private
   def commit_data(commit)
     return unless commit.parent
     begin
-      diff = commit.parent.diff(commit)
+      diff = if commit.parents.size > 1
+        git_diff = Git::Diff.new(git_repo)
+        git_diff.instance_variable_set :@full_diff,
+          git_repo.lib.diff_tree_full(commit)
+        git_diff.instance_variable_set :@stats,
+          git_repo.lib.diff_tree_fullstats(commit)
+        git_diff
+      else
+        commit.parent.diff(commit)
+      end
       stats = diff.stats[:total]
     rescue Git::GitExecuteError
       return
