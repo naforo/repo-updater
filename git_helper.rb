@@ -88,8 +88,8 @@ class GitHelper
     Timeout::timeout(15 * 60) do
       git_repo.fetch(git_repo.remotes.first) # TODO: find origin
     end
-  rescue Git::GitExecuteError
-    raise GitHelper::FetchError
+  rescue Git::GitExecuteError => ex
+    raise GitHelper::FetchError, ex.message
   end
 
   def refresh(refresh_remote = true)
